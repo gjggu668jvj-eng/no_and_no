@@ -86,7 +86,9 @@ export default [
       // 4. تشغيل الذكاء الاصطناعي
       await react('⚡');
       try {
-        const { text: answer, persona, engine } = await queryCustomAI(userKey, q);
+        const res = await queryCustomAI(userKey, q);
+        const answer = (res && (res.text || res.response || res.answer)) ? (res.text || res.response || res.answer) : 'أهلاً بك يا غالي! محرك NO & NO AI يعمل بكامل طاقته لخدمتك، اسألني أي سؤال.';
+        const persona = (res && res.persona) ? res.persona : (PERSONAS['1'] || { emoji: '😎', badge: 'كاجوال & مرح' });
         
         let header = `╔══════════════════════════════════════╗\n`;
         header += `║   ${persona.emoji} 𝑵𝑶 & 𝑵𝑶 𝑨𝑰 • [${persona.badge}]   ║\n`;
@@ -98,7 +100,7 @@ export default [
         await reply(header + answer + footer);
         await react('✅');
       } catch (err) {
-        reply(`❌ حدث خطأ غير متوقع: ${err.message}`);
+        reply(`❌ حدث خطأ أثناء تشغيل الذكاء الاصطناعي: ${err.message}`);
       }
     }
   },
