@@ -19,6 +19,7 @@ export default {
 
   // أوامر الذكاء الاصطناعي: المفتاح يقرأ من متغيرات البيئة فقط
   ai: {
+    geminiKey: process.env.GEMINI_API_KEY || '',
     url: process.env.GROQ_API_URL || 'https://api.groq.com/openai/v1/chat/completions',
     key: process.env.GROQ_API_KEY || '',
     model: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
