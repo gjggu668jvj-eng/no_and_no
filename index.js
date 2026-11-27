@@ -234,7 +234,7 @@ async function start() {
       },
       logger: pino({ level: 'silent' }),
       printQRInTerminal: false,
-      browser: Browsers ? Browsers.macOS('Desktop') : ['Mac OS', 'Chrome', '124.0.0.0'],
+      browser: Browsers ? Browsers.ubuntu('Chrome') : ['Ubuntu', 'Chrome', '20.0.04'],
       connectTimeoutMs: 60000,
       defaultQueryTimeoutMs: 60000,
       keepAliveIntervalMs: 15000,
@@ -334,11 +334,11 @@ async function start() {
           pairingRequested = false;
           if (sock.authState.creds.registered) {
             console.log('🔴 تم تسجيل الخروج من الهاتف. جاري مسح الجلسة القديمة...');
-            clearSessionFiles();
           } else {
-            console.log('⚠️ خطأ مؤقت في مصافحة الربط، جاري إعادة المحاولة بحفاظ على المفاتيح...');
+            console.log('🔄 تنظيف مفاتيح المصافحة المؤقتة لتوليد كود ربط جديد ومستقر...');
           }
-          setTimeout(start, 3000);
+          clearSessionFiles();
+          setTimeout(start, 6000);
         } else if (code === DisconnectReason.restartRequired || code === 515) {
           console.log('⚡ تم تأكيد الربط بنجاح! جاري تثبيت الجلسة والاتصال...');
           setTimeout(start, 2000);
