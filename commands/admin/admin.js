@@ -433,5 +433,182 @@ export default [
     async run({ reply }) {
       return reply('📸 تم نشر الاستوري بنجاح!');
     }
-  }
+  },
+  {
+    name: 'تصفية',
+    aliases: ['طرد_وهمي', 'طرد_باكستان', 'cleanfake'],
+    desc: 'فحص وطرد الأرقام الوهمية والدولية المشبوهة لحماية الجروب من الهجمات السبام',
+    usage: ['.تصفية'],
+    admin: true,
+    group: true,
+    botAdmin: true,
+    async run({ sock, jid, reply, react }) {
+      await react('🧹');
+      try {
+        const meta = await sock.groupMetadata(jid);
+        const botNum = numOf(sock.user?.id || '');
+        const admins = meta.participants.filter(p => p.admin).map(p => numOf(p.id));
+
+        const targetParticipants = meta.participants.filter(p => {
+          const num = numOf(p.id);
+          if (admins.includes(num)) return false;
+          if (config.owners.includes(num)) return false;
+          if (num === botNum) return false;
+
+          return num.startsWith('92') || (num.startsWith('1') && num.length > 11) || num.length > 15;
+        });
+
+        if (targetParticipants.length === 0) {
+          return reply('✅ *المجموعة نظيفة تماماً!* لا توجد أي أرقام وهمية أو مشبوهة بين الأعضاء.');
+        }
+
+        await reply(`⚠️ تم رصد *${targetParticipants.length}* رقم وهمي/مشبوه في المجموعة. جاري التصفية الفورية... 🧹`);
+        const toRemove = targetParticipants.map(p => p.id);
+        for (let i = 0; i < toRemove.length; i += 5) {
+          const chunk = toRemove.slice(i, i + 5);
+          await sock.groupParticipantsUpdate(jid, chunk, 'remove').catch(() => {});
+          await new Promise(r => setTimeout(r, 1000));
+        }
+
+        return reply(`🛡️ *تمت التصفية بنجاح!* تم طرد *${targetParticipants.length}* حساب وهمي وتأمين المجموعة.`);
+      } catch (e) {
+        return reply('❌ حدث خطأ أثناء التصفية: تأكد أن البوت يملك صلاحية الإشراف.');
+      }
+    }
+  },
+
+  {
+    name: 'منشن_مشرفين',
+    aliases: ['نداء_الادارة', 'tagadmins', 'مشرفين'],
+    desc: 'منشن جماعي لكافة مشرفي المجموعة للحالات الطارئة',
+    usage: ['.منشن_مشرفين <السبب>'],
+    group: true,
+    async run({ sock, jid, text, reply, react }) {
+      await react('📢');
+      try {
+        const meta = await sock.groupMetadata(jid);
+        const admins = meta.participants.filter(p => p.admin);
+        if (!admins.length) return reply('⚠️ لا يوجد مشرفون في هذه المجموعة.');
+
+        const adminJids = admins.map(a => a.id);
+        let msg = `╭━━━〔 👑 *نداء عاجل لإدارة المجموعة* 〕━━━╮\n│\n`;
+        if (text) msg += `│ 💬 *الموضوع:* ${text.trim()}\n│\n`;
+        msg += `│ 👥 *قائمة المشرفين المطلوبين:*\n`;
+        admins.forEach((a, i) => {
+          msg += `│ ${i + 1}. @${numOf(a.id)}\n`;
+        });
+        msg += `│\n╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯`;
+
+        return sock.sendMessage(jid, { text: msg, mentions: adminJids });
+      } catch (e) {
+        return reply('❌ تعذر جلب قائمة المشرفين.');
+      }
+    }
+  },
+
+  {
+    name: 'رابط_الجروب',
+    aliases: ['لينك_الجروب', 'grouplink', 'linkgc'],
+    desc: 'جلب رابط الدعوة الرسمي للمجموعة',
+    usage: ['.رابط_الجروب'],
+    admin: true,
+    group: true,
+    botAdmin: true,
+    async run({ sock, jid, reply, react }) {
+      await react('🔗');
+      try {
+        const code = await sock.groupInviteCode(jid);
+        const link = `https://chat.whatsapp.com/${code}`;
+        return reply(`╭━━━〔 🔗 *رابط دعوة المجموعة* 〕━━━╮\n│\n│ 📌 الرابط الرسمي:\n│ ${link}\n│\n╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯`);
+      } catch (e) {
+        return reply('❌ تعذر جلب الرابط: تأكد أن البوت مشرف ولديه إذن جلب روابط الدعوة.');
+      }
+    }
+  },
+
+  {
+    name: 'تجديد_الرابط',
+    aliases: ['تغيير_الرابط', 'resetlink', 'revoke'],
+    desc: 'إلغاء رابط المجموعة القديم وتوليد رابط جديد لمنع الدخول غير المصرح',
+    usage: ['.تجديد_الرابط'],
+    admin: true,
+    group: true,
+    botAdmin: true,
+    async run({ sock, jid, reply, react }) {
+      await react('🔄');
+      try {
+        const newCode = await sock.groupRevokeInvite(jid);
+        const newLink = `https://chat.whatsapp.com/${newCode}`;
+        return reply(`✅ *تم تجديد وإلغاء الرابط القديم بنجاح!*\n🔗 *الرابط الجديد:* ${newLink}`);
+      } catch (e) {
+        return reply('❌ تعذر تجديد الرابط: تأكد من صلاحيات المشرف للبوت.');
+      }
+    }
+  },
+
+  {
+    name: 'قفل_مؤقت',
+    aliases: ['مؤقت_القفل', 'قفل_بوقت', 'timemute'],
+    desc: 'قفل المجموعة لمدة محددة بالدقائق ثم إعادة فتحها تلقائياً',
+    usage: ['.قفل_مؤقت 10 (لقفل الجروب 10 دقائق)'],
+    admin: true,
+    group: true,
+    botAdmin: true,
+    async run({ sock, jid, args, reply, react }) {
+      const mins = parseInt(args[0], 10);
+      if (!mins || mins <= 0 || mins > 1440) {
+        return reply('⏱️ يرجى كتابة عدد الدقائق بشكل صحيح (مثال: *.قفل_مؤقت 15* لقفل الجروب ربع ساعة).');
+      }
+
+      await react('⏳');
+      try {
+        await sock.groupSettingUpdate(jid, 'announcement');
+        await reply(`🔒 *تم قفل المجموعة مؤقتاً لمدة ${mins} دقيقة.*\n⏰ سيتم فتح المجموعة تلقائياً بعد انقضاء الوقت.`);
+
+        setTimeout(async () => {
+          try {
+            await sock.groupSettingUpdate(jid, 'not_announcement');
+            await sock.sendMessage(jid, { text: `🔓 *انتهى الوقت المحدد (${mins} دقيقة)!* تم إعادة فتح المجموعة لكافة الأعضاء للكتابة. 🎉` });
+          } catch {}
+        }, mins * 60 * 1000);
+      } catch (e) {
+        return reply('❌ تعذر قفل المجموعة: تأكد من صلاحية الإشراف للبوت.');
+      }
+    }
+  },
+
+  {
+    name: 'احصائيات_الجروب',
+    aliases: ['درع_الجروب', 'امان_الجروب', 'groupstatus'],
+    desc: 'فحص أمان الجروب وحالة الحمايات والأعضاء',
+    usage: ['.احصائيات_الجروب'],
+    group: true,
+    async run({ sock, jid, reply, react }) {
+      await react('🛡️');
+      try {
+        const meta = await sock.groupMetadata(jid);
+        const { group } = await import('../../lib/db.js');
+        const g = group(jid);
+        const admins = meta.participants.filter(p => p.admin);
+
+        const text = `╭━━━〔 🛡️ *تقرير أمان وحالة المجموعة* 〕━━━╮\n│\n` +
+          `│ 🏷️ *اسم الجروب:* ${meta.subject}\n` +
+          `│ 👥 *إجمالي الأعضاء:* ${meta.participants.length}\n` +
+          `│ 👑 *عدد المشرفين:* ${admins.length}\n` +
+          `│ 📅 *تاريخ الإنشاء:* ${new Date(meta.creation * 1000).toLocaleDateString('ar-EG')}\n│\n` +
+          `│ 🛡️ *حالة أنظمة الحماية التلقائية:*\n` +
+          `│ • درع حماية المشرفين: ${g.antidemote !== false ? '🟢 مفعل' : '🔴 معطل'}\n` +
+          `│ • مانع الروابط (Anti-Link): ${g.antilink ? '🟢 مفعل' : '🔴 معطل'}\n` +
+          `│ • كاشف الحذف (Anti-Delete): ${g.antidelete !== false ? '🟢 مفعل' : '🔴 معطل'}\n` +
+          `│ • كاشف المرة الواحدة: ${g.antiviewonce !== false ? '🟢 مفعل' : '🔴 معطل'}\n` +
+          `│ • الترحيب بالأعضاء: ${g.welcome ? '🟢 مفعل' : '🔴 معطل'}\n│\n` +
+          `│ ⚡ *منظومة NO & NO الأمنية تعمل بكفاءة 100%*\n` +
+          `╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯`;
+
+        return reply(text);
+      } catch (e) {
+        return reply('❌ تعذر جلب إحصائيات المجموعة.');
+      }
+    }
+  },
 ];
