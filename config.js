@@ -10,6 +10,7 @@ export default {
 
   // قناة واتساب الرسمية للتحديثات والأوامر الجديدة
   channelLink: 'https://whatsapp.com/channel/0029VbBvRjeHrDZmSEd8sV12',
+  groupLink: process.env.GROUP_LINK || 'https://chat.whatsapp.com/FuJKSNWnmjN3YfzGb9Y8SZ',
   channelInviteCode: '0029VbBvRjeHrDZmSEd8sV12',
   newsletterJid: '120363402690998648@newsletter',
   newsletterName: 'no and no',
