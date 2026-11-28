@@ -1,6 +1,6 @@
 import { db, user, save } from '../../lib/db.js';
 import { proposals } from '../../lib/state.js';
-import { numOf, money, bar, getRank } from '../../lib/utils.js';
+import { numOf, money, bar, getRank, resolvePhone } from '../../lib/utils.js';
 
 const need = lv => Math.pow(lv, 2) * 50; // XP اللازم للوصول للمستوى التالي
 
@@ -157,9 +157,10 @@ export default [
       reply(`╭━━━〔 🎂 *حساب العمر والميلاد* 〕━━━╮\n│\n│ 🎈 عمرك الحالي: *${age}* سنة\n│ 🎉 متبقي على عيد ميلادك القادم: *${days}* يوم\n│\n╰━━━━━━━━━━━━━━━━━━━━━╯`);
     } },
 
-  { name: 'رقمي', aliases: ['mynumber'], desc: 'عرض رقم هاتفك بالصيغة الدولية',
+  { name: 'رقمي', aliases: ['mynumber', 'فحص_رقمي', 'رقم'], desc: 'عرض رقم هاتفك بالصيغة الدولية',
     async run({ sender, reply }) {
-      reply(`📱 رقم هاتفك المسجل: *+${numOf(sender)}*`);
+      const num = resolvePhone(sender) || numOf(sender);
+      reply(`📱 رقم هاتفك المسجل: *+${num}*`);
     } },
 
   { name: 'توب_المستويات', aliases: ['toplv', 'topxp', 'المستويات'], desc: 'عرض أعلى 10 أعضاء في المستوى والخبرة',

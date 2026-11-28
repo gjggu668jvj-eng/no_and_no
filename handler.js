@@ -6,7 +6,7 @@ import { commands, uniqueCommands } from './lib/loader.js';
 import { mainMenu, sectionMenu, secretOwnerMenu } from './lib/menu.js';
 import sections from './lib/sections.js';
 import { db, user, group, save } from './lib/db.js';
-import { numOf, ids, randInt, money, normAr, getRank, safeSendAudio } from './lib/utils.js';
+import { numOf, ids, randInt, money, normAr, getRank, safeSendAudio, rememberLid, resolvePhone, lidMap } from './lib/utils.js';
 import { downloadMediaMessage } from './lib/baileys.js';
 import { pushError } from './lib/logs.js';
 import { games } from './lib/state.js';
@@ -99,44 +99,117 @@ export async function handle(sock, m) {
   if (!jid || jid === 'status@broadcast' || jid.endsWith('@newsletter')) return;
 
   const isGroup = jid.endsWith('@g.us');
-  const botNumbers = [sock.user?.id, sock.user?.lid, config.botNumber].filter(Boolean).map(numOf);
 
-  const raw = (isGroup ? [m.key.participant, m.key.participantAlt] : [jid, m.key.remoteJidAlt]).filter(Boolean);
-  let sender = raw.find(s => s.endsWith('@s.whatsapp.net')) || raw[0];
+  // تسجيل وحفظ معرفات البوت الرسمية
+  if (sock.user?.lid && sock.user?.id) {
+    rememberLid(sock.user.lid, sock.user.id);
+  }
+  if (config.botNumber) {
+    rememberLid(sock.user?.lid, config.botNumber);
+  }
+  (config.owners || []).forEach(o => {
+    if (sock.user?.lid && o) rememberLid(sock.user.lid, o);
+  });
+
+  // تسجيل أي معرف هاتف مرفق في ترويسة الرسالة (Modern WhatsApp LID resolution)
+  if (m.key.participant && m.key.participantPn) rememberLid(m.key.participant, m.key.participantPn);
+  if (m.key.participantLid && m.key.participantPn) rememberLid(m.key.participantLid, m.key.participantPn);
+  if (m.key.senderLid && m.key.senderPn) rememberLid(m.key.senderLid, m.key.senderPn);
+  if (jid && m.key.remoteJidPn) rememberLid(jid, m.key.remoteJidPn);
+
+  const botNumbers = [sock.user?.id, sock.user?.lid, config.botNumber].filter(Boolean).flatMap(x => [numOf(x), resolvePhone(x)]).filter(Boolean);
+
+  const raw = [
+    m.key.participantPn,
+    m.key.senderPn,
+    m.key.remoteJidPn,
+    isGroup ? m.key.participant : jid,
+    m.key.participantAlt,
+    m.key.participantLid,
+    m.key.senderLid
+  ].filter(Boolean);
+
+  let sender = raw.find(s => s.endsWith('@s.whatsapp.net')) || raw[0] || (isGroup ? m.key.participant : jid);
   if (m.key.fromMe) {
     sender = sock.user?.id || (jid.endsWith('@s.whatsapp.net') ? jid : (sender || ''));
   }
-  const sn = raw.map(numOf);
+
+  // إذا كان المرسل معرف LID وله رقم هاتف حقيقي مسجل
+  const resolvedSenderPhone = resolvePhone(sender);
+  if (resolvedSenderPhone && resolvedSenderPhone !== numOf(sender)) {
+    sender = resolvedSenderPhone + '@s.whatsapp.net';
+  }
+
+  const sn = raw.flatMap(x => [numOf(x), resolvePhone(x)]).filter(Boolean);
   if (m.key.fromMe) sn.push(...botNumbers);
-  if (sender) sn.push(numOf(sender));
+  if (sender) {
+    sn.push(numOf(sender));
+    sn.push(resolvePhone(sender));
+  }
 
   let meta = null, isAdmin = false, isBotAdmin = false;
-  const pid = j => meta?.participants?.find(p => ids(p).map(numOf).includes(numOf(j)))?.id || j;
-  const partOf = j => meta?.participants?.find(p => ids(p).map(numOf).includes(numOf(j))) || null;
+  const partOf = j => {
+    if (!meta?.participants) return null;
+    const targetNums = [numOf(j), resolvePhone(j)].filter(Boolean);
+    return meta.participants.find(p => {
+      const pNums = ids(p).flatMap(id => [numOf(id), resolvePhone(id)]).filter(Boolean);
+      return pNums.some(n => targetNums.includes(n));
+    }) || null;
+  };
+  const pid = j => partOf(j)?.id || j;
   const canon = j => {
     const p = partOf(j);
-    return p ? (p.phoneNumber || p.jid || (p.id.endsWith('@s.whatsapp.net') ? p.id : j)) : j;
+    if (p) {
+      const real = p.phoneNumber || (p.jid && p.jid.endsWith('@s.whatsapp.net') ? p.jid : null) || resolvePhone(p.id);
+      if (real) return real.includes('@') ? real : real + '@s.whatsapp.net';
+      if (p.id.endsWith('@s.whatsapp.net')) return p.id;
+    }
+    const r = resolvePhone(j);
+    return (r && r !== numOf(j)) ? r + '@s.whatsapp.net' : j;
   };
 
   if (isGroup) {
     try {
       meta = await getMeta(sock, jid);
+      meta?.participants?.forEach(p => {
+        if (p.lid && p.jid) rememberLid(p.lid, p.jid);
+        if (p.lid && p.phoneNumber) rememberLid(p.lid, p.phoneNumber);
+        if (p.id && p.jid) rememberLid(p.id, p.jid);
+        if (p.id && p.phoneNumber) rememberLid(p.id, p.phoneNumber);
+      });
     } catch (e) {
       meta = { participants: [] };
     }
-    const sp = partOf(sender) || meta?.participants?.find(p => ids(p).map(numOf).some(n => sn.includes(n)));
-    if (sp) { isAdmin = !!sp.admin; sender = canon(sp.id); sn.push(numOf(sender)); }
-    const me = [sock.user?.id, sock.user?.lid].filter(Boolean).map(numOf);
-    isBotAdmin = !!meta?.participants?.find(p => ids(p).map(numOf).some(n => me.includes(n)))?.admin;
+    const sp = partOf(sender) || meta?.participants?.find(p => {
+      const pNums = ids(p).flatMap(id => [numOf(id), resolvePhone(id)]).filter(Boolean);
+      return pNums.some(n => sn.includes(n));
+    });
+    if (sp) {
+      isAdmin = !!sp.admin;
+      sender = canon(sp.id);
+      sn.push(numOf(sender));
+      sn.push(resolvePhone(sender));
+    }
+    const me = [sock.user?.id, sock.user?.lid, config.botNumber].filter(Boolean).flatMap(x => [numOf(x), resolvePhone(x)]).filter(Boolean);
+    isBotAdmin = !!meta?.participants?.find(p => {
+      const pNums = ids(p).flatMap(id => [numOf(id), resolvePhone(id)]).filter(Boolean);
+      return pNums.some(n => me.includes(n));
+    })?.admin;
   }
 
   const isOwner = Boolean(
     m.key.fromMe ||
-    sn.some(n => config.owners.includes(n) || botNumbers.includes(n))
+    sn.some(n => {
+      const rn = resolvePhone(n);
+      return config.owners.includes(n) || config.owners.includes(rn) || botNumbers.includes(n) || botNumbers.includes(rn);
+    })
   );
   const isCoOwner = Boolean(
     isOwner ||
-    sn.some(n => (config.coOwners || []).includes(n))
+    sn.some(n => {
+      const rn = resolvePhone(n);
+      return (config.coOwners || []).includes(n) || (config.coOwners || []).includes(rn);
+    })
   );
   const assistantData = db.settings.assistants?.[sender] || db.settings.assistants?.[numOf(sender) + '@s.whatsapp.net'] || null;
   const isAssistant = Boolean(assistantData);

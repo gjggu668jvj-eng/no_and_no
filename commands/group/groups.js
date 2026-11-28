@@ -5,7 +5,7 @@ const onoff = v => (v ? 'مفعّل ✅' : 'متوقف ❌');
 const usage = n => `💡 اكتب: */${n} تشغيل*  أو  */${n} ايقاف*`;
 
 export default [
-  { name: 'معلومات_الجروب', aliases: ['groupinfo', 'ginfo', 'معلومات'], desc: 'عرض بطاقة تفصيلية عن المجموعة',
+  { name: 'معلومات_الجروب', aliases: ['groupinfo', 'ginfo', 'معلومات', 'معلومات_المجموعة'], desc: 'عرض بطاقة تفصيلية عن المجموعة (مخصص للمشرفين)', admin: true, group: true,
     async run({ meta, reply }) {
       const admins = meta.participants.filter(p => p.admin).length;
       const date = new Date(meta.creation * 1000).toLocaleDateString('ar-EG');

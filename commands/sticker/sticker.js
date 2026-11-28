@@ -1,6 +1,6 @@
 import { downloadMediaMessage } from '@whiskeysockets/baileys';
 import sharp from 'sharp';
-import { createAudioStickerVideo } from '../../lib/audio_sticker_engine.js';
+import { createAudioStickerVideo, convertToOpusAudio, extractAudioFromVideo } from '../../lib/audio_sticker_engine.js';
 import { getDefaultAudioPoster } from '../../lib/audio_poster.js';
 import config from '../../config.js';
 
@@ -114,97 +114,126 @@ export default [
   },
 
   {
-    name: 'صوت_استيكر',
-    aliases: ['صوت_ملصق', 'استيكر_صوت', 'ستيكر_صوت', 'صوت_ستيكر', 'stickersound'],
-    desc: 'صنع ملصقات بها صوت مدمج كفيديو مربع بزر كتم الصوت كما في القنوات والجروبات مع شريط القناة الرسمي',
-    usage: ['رد على مقطع صوتي أو فويس نوت واكتب: .صوت_استيكر'],
+    name: 'استيكر_بصوت',
+    aliases: ['صوت_استيكر', 'صوت_ملصق', 'استيكر_صوت', 'ستيكر_صوت', 'صوت_ستيكر', 'soundsticker'],
+    desc: 'صنع ملصق واتساب حقيقي ناطق بصوت مدمج (بدون تحويله لفيديو - ميزة واتساب الجديدة)',
+    usage: ['رد على مقطع فيديو أو صورة أو مقطع صوتي واكتب: .استيكر_بصوت'],
     async run({ sock, jid, m, getMedia, quoted, sender, reply, react }) {
       await react('🎵');
 
-      // 1. جلب الصوت إما من الرسالة الحالية أو الرسالة المردود عليها
-      let audioMedia = await getMedia(['audioMessage', 'documentMessage']);
       let audioBuf = null;
+      let imgBuf = null;
+      let isVideo = false;
 
-      if (audioMedia && (audioMedia.type === 'audioMessage' || audioMedia.mime?.includes('audio'))) {
-        audioBuf = audioMedia.buffer;
-      }
-
-      if (!audioBuf && quoted?.message) {
-        const qm = quoted.message;
-        if (qm.audioMessage || (qm.documentMessage && qm.documentMessage.mimetype?.includes('audio'))) {
+      // 1. فحص وسائط الرسالة الحالية
+      const curMedia = await getMedia(['imageMessage', 'videoMessage', 'audioMessage', 'stickerMessage', 'documentMessage']);
+      if (curMedia) {
+        if (curMedia.type === 'videoMessage') {
+          isVideo = true;
+          imgBuf = curMedia.buffer;
           try {
-            audioBuf = await downloadMediaMessage(quoted, 'buffer', {});
+            audioBuf = await extractAudioFromVideo(curMedia.buffer);
           } catch {}
+        } else if (curMedia.type === 'imageMessage' || curMedia.type === 'stickerMessage') {
+          imgBuf = curMedia.buffer;
+        } else if (curMedia.type === 'audioMessage' || curMedia.mime?.includes('audio')) {
+          audioBuf = curMedia.buffer;
         }
       }
 
-      if (!audioBuf) {
-        return reply('💡 *طريقة الاستخدام:*\nقم بالرد على أي مقطع صوتي أو فويس نوت واكتب: *.صوت_استيكر*\nأو رد على ملصق ومعه مقطع صوتي لدمجهما في استيكر صوتي مدمج!');
+      // 2. فحص الرسالة المردود عليها (quoted)
+      if (quoted?.message) {
+        const qm = quoted.message;
+        if (qm.videoMessage) {
+          isVideo = true;
+          const vBuf = await downloadMediaMessage(quoted, 'buffer', {}).catch(() => null);
+          if (vBuf) {
+            imgBuf = imgBuf || vBuf;
+            try { audioBuf = audioBuf || await extractAudioFromVideo(vBuf); } catch {}
+          }
+        }
+        if (!imgBuf && (qm.imageMessage || qm.stickerMessage)) {
+          imgBuf = await downloadMediaMessage(quoted, 'buffer', {}).catch(() => null);
+        }
+        if (!audioBuf && (qm.audioMessage || (qm.documentMessage && qm.documentMessage.mimetype?.includes('audio')))) {
+          audioBuf = await downloadMediaMessage(quoted, 'buffer', {}).catch(() => null);
+        }
       }
 
-      await reply('⏳ *جاري دمج الصوت داخل الاستيكر لإنتاج فيديو صوتي مدمج...* 🎬');
+      if (!imgBuf && !audioBuf) {
+        return reply('💡 *طريقة استخدام استيكر بصوت (الميزة الجديدة في واتساب):*\n' +
+          '▪️ رد على أي مقطع فيديو واكتب: *.استيكر_بصوت* (يحول الفيديو لملصق حقيقي شفاف + صوته النقي مباشرة).\n' +
+          '▪️ أو رد على مقطع صوتي ومعه صورة لدمجهما كملصق ناطق.\n' +
+          '▪️ أو رد على ملصق ومعه فويس نوت.');
+      }
+
+      await reply('⏳ *جاري إنشاء استيكر واتساب الحقيقي وتجهيز الصوت المرفق...* 🎨');
 
       try {
-        // 2. البحث عن صورة: من الرسالة الحالية، أو المردود عليها، أو صورة الملصق
-        let squareImg = null;
-
-        // فحص إذا كان هناك صورة أو ملصق في الرسالة أو الرد
-        const imgMedia = await getMedia(['imageMessage', 'stickerMessage']);
-        if (imgMedia && imgMedia.buffer && imgMedia.buffer.length > 50) {
-          try {
-            squareImg = await sharp(imgMedia.buffer)
-              .resize(512, 512, { fit: 'cover' })
-              .png()
-              .toBuffer();
-          } catch {}
-        }
-
-        // إذا لم توجد صورة مرفقة، نحاول جلب الصورة الشخصية لمرسل الصوت أو المستخدم
-        if (!squareImg) {
-          try {
-            const targetJid = (quoted && quoted.participant) ? quoted.participant : sender;
-            const ppUrl = await sock.profilePictureUrl(targetJid, 'image').catch(() => null);
-            if (ppUrl) {
-              const res = await fetch(ppUrl, { signal: AbortSignal.timeout(6000) });
-              if (res.ok) {
-                const ppBuf = Buffer.from(await res.arrayBuffer());
-                squareImg = await sharp(ppBuf)
-                  .resize(512, 512, { fit: 'cover' })
-                  .png()
+        // تحويل الصورة أو فريم الفيديو لملصق WebP حقيقي 512x512
+        let webpBuf;
+        if (imgBuf) {
+          if (isVideo) {
+            webpBuf = await sharp(imgBuf, { animated: true })
+              .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+              .webp({ quality: 65, effort: 4 })
+              .toBuffer().catch(async () => {
+                return await sharp(imgBuf)
+                  .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+                  .webp({ quality: 80 })
                   .toBuffer();
-              }
-            }
-          } catch {}
+              });
+          } else {
+            webpBuf = await sharp(imgBuf)
+              .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+              .webp({ quality: 80 })
+              .toBuffer();
+          }
+        } else {
+          // صورة افتراضية
+          const defImg = await getDefaultAudioPoster();
+          webpBuf = await sharp(defImg)
+            .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+            .webp({ quality: 80 })
+            .toBuffer();
         }
 
-        // إذا لم تتوفر أي صورة، نستخدم بوستر NO & NO الصوتي المحلي الفاخر
-        if (!squareImg) {
-          squareImg = await getDefaultAudioPoster();
-        }
-
-        // 3. دمج الصوت مع الصورة لإنتاج فيديو MP4 مربع مدمج بصوت
-        const videoBuffer = await createAudioStickerVideo(squareImg, audioBuf);
-
-        // 4. إرسال الفيديو كاستيكر صوتي مربع مع زر تشغيل/كتم الصوت وشريط القناة الرسمي في الأعلى والأسفل تماماً مثل الصورة
-        await sock.sendMessage(jid, {
-          video: videoBuffer,
-          gifPlayback: false,
-          mimetype: 'video/mp4',
+        // إرسال الملصق الحقيقي أولاً
+        const sentSticker = await sock.sendMessage(jid, {
+          sticker: webpBuf,
           contextInfo: {
             forwardingScore: 999,
             isForwarded: true,
             forwardedNewsletterMessageInfo: {
-              newsletterJid: '120363403295932960@newsletter',
-              newsletterName: 'SUPPORT NO & NO BOT ⚡',
+              newsletterJid: config.newsletterJid || '120363388701824962@newsletter',
+              newsletterName: config.newsletterName || 'no and no',
               serverMessageId: 1
             }
           }
         }, { quoted: m });
 
+        // إذا وُجد صوت، نرسله مباشرة مرتبطاً بالملصق بصيغة Opus PTT لتشغيله مع الملصق
+        if (audioBuf) {
+          const opusBuf = await convertToOpusAudio(audioBuf);
+          await sock.sendMessage(jid, {
+            audio: opusBuf,
+            mimetype: 'audio/ogg; codecs=opus',
+            ptt: true,
+            contextInfo: {
+              externalAdReply: {
+                title: '🔊 صوت الاستيكر التفاعلي',
+                body: 'اضغط لتشغيل الصوت المصاحب للملصق',
+                mediaType: 1,
+                renderLargerThumbnail: false
+              }
+            }
+          }, { quoted: sentSticker });
+        }
+
         await react('✨');
-      } catch (e) {
-        console.error('Error generating audio sticker video:', e);
-        reply('❌ تعذر إنتاج الاستيكر الصوتي: ' + e.message);
+      } catch (err) {
+        console.error('Audio sticker error:', err);
+        reply('❌ تعذر إنشاء الاستيكر الصوتي: ' + err.message);
       }
     }
   }

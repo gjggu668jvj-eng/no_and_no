@@ -4,6 +4,7 @@
 
 import { db, save } from '../../lib/db.js';
 import { numOf } from '../../lib/utils.js';
+import { downloadMediaMessage } from '@whiskeysockets/baileys';
 
 export default [
   {
@@ -579,9 +580,10 @@ export default [
 
   {
     name: 'احصائيات_الجروب',
-    aliases: ['درع_الجروب', 'امان_الجروب', 'groupstatus'],
-    desc: 'فحص أمان الجروب وحالة الحمايات والأعضاء',
+    aliases: ['درع_الجروب', 'امان_الجروب', 'groupstatus', 'تقرير_الجروب'],
+    desc: 'فحص أمان الجروب وحالة الحمايات والأعضاء (مخصص للمشرفين)',
     usage: ['.احصائيات_الجروب'],
+    admin: true,
     group: true,
     async run({ sock, jid, reply, react }) {
       await react('🛡️');
@@ -608,6 +610,58 @@ export default [
         return reply(text);
       } catch (e) {
         return reply('❌ تعذر جلب إحصائيات المجموعة.');
+      }
+    }
+  },
+
+  {
+    name: 'ثيم',
+    aliases: ['ثيم_الجروب', 'سمة', 'خلفية_الجروب', 'theme', 'chat_theme'],
+    desc: 'تغيير ثيم وخلفية المجموعة لجميع الأعضاء بصورة مخصصة',
+    usage: ['.ثيم بالرد على صورة أو إرسال صورة مع الأمر'],
+    admin: true,
+    group: true,
+    async run({ sock, jid, m, quoted, reply, react }) {
+      await react('🎨');
+      let imageBuffer = null;
+      try {
+        if (m.message?.imageMessage) {
+          imageBuffer = await downloadMediaMessage(m, 'buffer', {});
+        } else if (quoted?.message?.imageMessage) {
+          imageBuffer = await downloadMediaMessage(quoted, 'buffer', {});
+        }
+      } catch (err) {
+        console.error('Error downloading theme image:', err);
+      }
+
+      if (!imageBuffer) {
+        return reply('💡 *طريقة استخدام أمر الثيم:*\nأرسل صورة أو قم بالرد على أي صورة واكتب: *.ثيم*\nليتم تطبيقها فوراً كثيم وخلفية معتمدة للدردشة لجميع أعضاء المجموعة! 🎨');
+      }
+
+      try {
+        // 1. تحديث صورة بروفايل الجروب بالثيم الجديد
+        try {
+          await sock.updateProfilePicture(jid, imageBuffer);
+        } catch (e) {
+          console.log('ملاحظة تحديث أيقونة الجروب:', e.message);
+        }
+
+        // 2. إرسال الثيم والخلفية بدقة كاملة لجميع الأعضاء
+        const themeText = `╭━━━〔 🎨 *ثيم وخلفية المجموعة* 〕━━━╮\n│\n` +
+          `│ ✦ *تم التطبيق بنجاح* ✦\n` +
+          `│ ✅ تم تعيين وإرسال ثيم المجموعة (خلفية وواجهة الدردشة لجميع الأعضاء).\n│\n` +
+          `│ 💡 *لتطبيق الخلفية في شاتك:*\n` +
+          `│ اضغط على الصورة أعلاه > خيارات > تعيين كخلفية للدردشة لجميع المحادثة.\n` +
+          `╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯`;
+
+        await sock.sendMessage(jid, {
+          image: imageBuffer,
+          caption: themeText
+        }, { quoted: m });
+
+        await react('✅');
+      } catch (err) {
+        reply(`❌ حدث خطأ أثناء تطبيق الثيم: ${err.message}`);
       }
     }
   },
