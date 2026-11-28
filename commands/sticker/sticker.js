@@ -4,6 +4,42 @@ import { createAudioStickerVideo, convertToOpusAudio, extractAudioFromVideo } fr
 import { getDefaultAudioPoster } from '../../lib/audio_poster.js';
 import config from '../../config.js';
 
+function addExif(webpBuf, pack = config.botName || 'NO & NO', author = config.developer || 'no and no') {
+  try {
+    const json = JSON.stringify({
+      'sticker-pack-id': 'com.noandno.bot.' + Date.now(),
+      'sticker-pack-name': pack,
+      'sticker-pack-publisher': author,
+      'emojis': ['🤖', '✨', '🎵'],
+    });
+    const jsonBuf = Buffer.from(json, 'utf8');
+    const exif = Buffer.from([
+      0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00,
+      0x01, 0x00, 0x41, 0x57, 0x07, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x16, 0x00, 0x00, 0x00,
+    ]);
+    exif.writeUInt32LE(jsonBuf.length, 14);
+    const exifPayload = Buffer.concat([exif, jsonBuf]);
+    const exifLen = exifPayload.length;
+    const exifChunkHeader = Buffer.from([0x45, 0x58, 0x49, 0x46, 0x00, 0x00, 0x00, 0x00]);
+    exifChunkHeader.writeUInt32LE(exifLen, 4);
+    const paddedPayload = exifLen % 2 !== 0 ? Buffer.concat([exifPayload, Buffer.alloc(1)]) : exifPayload;
+    const chunk = Buffer.concat([exifChunkHeader, paddedPayload]);
+
+    if (webpBuf.length > 12 && webpBuf.toString('ascii', 0, 4) === 'RIFF' && webpBuf.toString('ascii', 8, 12) === 'WEBP') {
+      if (webpBuf.indexOf('EXIF') !== -1) return webpBuf;
+      const riffSize = webpBuf.readUInt32LE(4) + chunk.length;
+      const newHeader = Buffer.alloc(8);
+      newHeader.write('RIFF', 0);
+      newHeader.writeUInt32LE(riffSize, 4);
+      return Buffer.concat([newHeader, webpBuf.subarray(8), chunk]);
+    }
+  } catch (e) {
+    console.error('exif error:', e);
+  }
+  return webpBuf;
+}
+
 export default [
   {
     name: 'ملصق',
@@ -39,8 +75,9 @@ export default [
             .toBuffer();
         }
 
+        const finalSticker = addExif(webpBuf);
         await sock.sendMessage(jid, {
-          sticker: webpBuf,
+          sticker: finalSticker,
           contextInfo: {
             forwardingScore: 999,
             isForwarded: true,
@@ -198,9 +235,12 @@ export default [
             .toBuffer();
         }
 
-        // إرسال الملصق الحقيقي أولاً
+        // حقن بيانات Exif الرسمية للملصق ليعمل مباشرة في واتساب
+        const finalSticker = addExif(webpBuf);
+
+        // 1. إرسال الملصق الحقيقي
         const sentSticker = await sock.sendMessage(jid, {
-          sticker: webpBuf,
+          sticker: finalSticker,
           contextInfo: {
             forwardingScore: 999,
             isForwarded: true,
@@ -212,21 +252,13 @@ export default [
           }
         }, { quoted: m });
 
-        // إذا وُجد صوت، نرسله مباشرة مرتبطاً بالملصق بصيغة Opus PTT لتشغيله مع الملصق
+        // 2. إذا وُجد صوت، نرسل مقطع الصوت فوراً مرتبطاً بالملصق بصيغة Opus PTT النقية
         if (audioBuf) {
           const opusBuf = await convertToOpusAudio(audioBuf);
           await sock.sendMessage(jid, {
             audio: opusBuf,
             mimetype: 'audio/ogg; codecs=opus',
-            ptt: true,
-            contextInfo: {
-              externalAdReply: {
-                title: '🔊 صوت الاستيكر التفاعلي',
-                body: 'اضغط لتشغيل الصوت المصاحب للملصق',
-                mediaType: 1,
-                renderLargerThumbnail: false
-              }
-            }
+            ptt: true
           }, { quoted: sentSticker });
         }
 

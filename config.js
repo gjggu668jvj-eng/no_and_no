@@ -5,7 +5,7 @@ export default {
   developer: 'no and no',
   prefix: '/',
   botNumber: process.env.BOT_NUMBER || '',
-  owners: (process.env.OWNERS || '201036042537,201225622948,201924162879501').split(','),
+  owners: (process.env.OWNERS || '201016842557,201036042537,201225622948,279981150236798,201924162879501').split(','),
   coOwners: (process.env.CO_OWNERS || '201558446307').split(','),
 
   // قناة واتساب الرسمية للتحديثات والأوامر الجديدة

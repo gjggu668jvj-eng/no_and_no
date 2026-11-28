@@ -42,11 +42,26 @@ export default [
       reply(`╭━━━〔 🆔 *معرفات الحساب* 〕━━━╮\n│\n│ 👤 معرف الشخص: *${numOf(target || sender)}*\n│ 💬 معرف المحادثة: *${jid}*\n│\n╰━━━━━━━━━━━━━━━━━━━━━╯`);
     } },
 
-  { name: 'صورة', aliases: ['pp', 'avatar'], desc: 'عرض الصورة الشخصية للعضو بجودة كاملة',
+  { name: 'صورة', aliases: ['pp', 'avatar', 'افتار', 'افاتار'], desc: 'عرض الصورة الشخصية للعضو بجودة كاملة',
     async run({ sock, target, sender, send, reply }) {
       try {
-        const url = await sock.profilePictureUrl(target || sender, 'image');
-        await send({ image: { url }, caption: `🖼️ الصورة الشخصية لـ @${numOf(target || sender)}`, mentions: [target || sender] });
+        const who = target || sender;
+        const resolved = resolvePhone(who);
+        const jidsToTry = [
+          (resolved && resolved !== numOf(who)) ? (resolved + '@s.whatsapp.net') : null,
+          who.includes('@') ? who : who + '@s.whatsapp.net',
+          who
+        ].filter(Boolean);
+
+        let url = null;
+        for (const j of jidsToTry) {
+          try {
+            url = await sock.profilePictureUrl(j, 'image');
+            if (url) break;
+          } catch {}
+        }
+        if (!url) throw new Error('not found');
+        await send({ image: { url }, caption: `🖼️ الصورة الشخصية لـ @${numOf(who)}`, mentions: [who] });
       } catch {
         reply('❌ تعذر جلب الصورة، إما بسبب إعدادات الخصوصية أو عدم وجود صورة حساب.');
       }

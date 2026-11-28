@@ -617,7 +617,7 @@ export default [
   {
     name: 'ثيم',
     aliases: ['ثيم_الجروب', 'سمة', 'خلفية_الجروب', 'theme', 'chat_theme'],
-    desc: 'تغيير ثيم وخلفية المجموعة لجميع الأعضاء بصورة مخصصة',
+    desc: 'إرسال ثيم وخلفية المجموعة لجميع الأعضاء بصورة مخصصة',
     usage: ['.ثيم بالرد على صورة أو إرسال صورة مع الأمر'],
     admin: true,
     group: true,
@@ -635,23 +635,16 @@ export default [
       }
 
       if (!imageBuffer) {
-        return reply('💡 *طريقة استخدام أمر الثيم:*\nأرسل صورة أو قم بالرد على أي صورة واكتب: *.ثيم*\nليتم تطبيقها فوراً كثيم وخلفية معتمدة للدردشة لجميع أعضاء المجموعة! 🎨');
+        return reply('💡 *طريقة استخدام أمر الثيم:*\nأرسل صورة أو قم بالرد على أي صورة واكتب: *.ثيم*\nليتم إرسالها واعتمادها كثيم وخلفية للمجموعة لجميع الأعضاء! 🎨');
       }
 
       try {
-        // 1. تحديث صورة بروفايل الجروب بالثيم الجديد
-        try {
-          await sock.updateProfilePicture(jid, imageBuffer);
-        } catch (e) {
-          console.log('ملاحظة تحديث أيقونة الجروب:', e.message);
-        }
-
-        // 2. إرسال الثيم والخلفية بدقة كاملة لجميع الأعضاء
+        // إرسال الثيم والخلفية بدقة كاملة لجميع الأعضاء
         const themeText = `╭━━━〔 🎨 *ثيم وخلفية المجموعة* 〕━━━╮\n│\n` +
-          `│ ✦ *تم التطبيق بنجاح* ✦\n` +
-          `│ ✅ تم تعيين وإرسال ثيم المجموعة (خلفية وواجهة الدردشة لجميع الأعضاء).\n│\n` +
-          `│ 💡 *لتطبيق الخلفية في شاتك:*\n` +
-          `│ اضغط على الصورة أعلاه > خيارات > تعيين كخلفية للدردشة لجميع المحادثة.\n` +
+          `│ ✦ *تم التطبيق* ✦\n` +
+          `│ ✅ : تم إرسال ثيم المجموعة (خلفية).\n│\n` +
+          `│ 💡 *لتطبيق الخلفية في شاتك لدى الجميع:*\n` +
+          `│ اضغط على الصورة أعلاه > خيارات > تعيين كخلفية للدردشة.\n` +
           `╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯`;
 
         await sock.sendMessage(jid, {
@@ -661,8 +654,59 @@ export default [
 
         await react('✅');
       } catch (err) {
-        reply(`❌ حدث خطأ أثناء تطبيق الثيم: ${err.message}`);
+        reply(`❌ حدث خطأ أثناء إرسال الثيم: ${err.message}`);
       }
+    }
+  },
+
+  {
+    name: 'امسح',
+    aliases: ['مسح', 'حذف_رسائل', 'تطهير', 'purge', 'clear_messages', 'نظف'],
+    desc: 'مسح وحذف عدد محدد من أحدث رسائل الجروب تلقائياً (مثال: .امسح 100)',
+    usage: ['.امسح <العدد> (مثال: .امسح 50 أو .امسح 100)'],
+    admin: true,
+    group: true,
+    botAdmin: true,
+    async run({ sock, jid, m, text, args, reply, react }) {
+      const count = parseInt(args[0] || text || '10', 10);
+      if (isNaN(count) || count <= 0) {
+        return reply('💡 *طريقة الاستخدام:*\nاكتب الأمر ومعه عدد الرسائل المراد مسحها:\nمثال: *.امسح 50* أو *.امسح 100*');
+      }
+
+      const limit = Math.min(count, 100);
+      await react('🧹');
+
+      const { getRecentGroupMessages } = await import('../../lib/message_store.js');
+      const messagesToDelete = getRecentGroupMessages(jid, limit);
+
+      // حذف رسالة الأمر نفسها فوراً
+      try { await sock.sendMessage(jid, { delete: m.key }); } catch {}
+
+      if (!messagesToDelete.length) {
+        return reply(`ℹ️ تم تفعيل كاشف المسح، ولكن لا توجد رسائل مسجلة في الجلسة الحالية بعد.`);
+      }
+
+      let deletedCount = 0;
+      for (const item of messagesToDelete) {
+        if (!item?.key) continue;
+        try {
+          await sock.sendMessage(jid, { delete: item.key });
+          deletedCount++;
+          if (deletedCount % 5 === 0) {
+            await new Promise(r => setTimeout(r, 150));
+          }
+        } catch (e) {}
+      }
+
+      const alertMsg = await sock.sendMessage(jid, {
+        text: `🧹 *تم بنجاح مسح [ ${deletedCount} ] رسالة من أحدث رسائل المجموعة!*`
+      });
+
+      setTimeout(() => {
+        if (alertMsg?.key) {
+          sock.sendMessage(jid, { delete: alertMsg.key }).catch(() => {});
+        }
+      }, 4000);
     }
   },
 ];
